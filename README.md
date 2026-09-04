@@ -1,6 +1,6 @@
 # False-Decline Watchdog
 
-False-Decline Watchdog is a fraud risk-scoring backend for e-commerce merchants, built for the Razorpay Buildathon (Track 2 — AI Risk Manager). Given a transaction's details, it returns a risk score and, just as importantly, the estimated rupee cost of that score being wrong in either direction — wrongly blocking a genuine customer, or missing a real fraud. Most fraud tools report only how much fraud they catch; this one is built around the idea that the cost of false positives deserves equal billing, because a wrongly declined customer is a real, measurable business loss too.
+False-Decline Watchdog is a fraud risk-scoring tool for e-commerce merchants, built for the Razorpay Buildathon (Track 2 — AI Risk Manager). Given a transaction's details, it returns a risk score and, just as importantly, the estimated rupee cost of that score being wrong in either direction — wrongly blocking a genuine customer, or missing a real fraud. Most fraud tools report only how much fraud they catch; this one is built around the idea that the cost of false positives deserves equal billing, because a wrongly declined customer is a real, measurable business loss too.
 
 ## The problem
 
@@ -25,6 +25,14 @@ On the held-out (chronologically later) test set of 118,108 transactions, at the
 
 The model catches 61% of real fraud, at the cost of a low precision — most flagged transactions turn out to be genuine. This is an intentional, explainable consequence of `class_weight="balanced"` prioritizing fraud detection given a ~3.5% base rate, and the threshold is deliberately adjustable rather than fixed, since the "right" balance between catching fraud and avoiding false declines is a business decision, not a purely statistical one. See `model/cost_calculator.py` for how different thresholds translate into actual rupee cost tradeoffs.
 
+## The frontend
+
+`frontend/index.html` is a single-page, no-build-step site with three sections: **Overview** (the pitch and problem statement), **Try it live** (a real demo form wired to the actual `/score` API), and **The numbers** (the real results above, shown as stats). It supports a dark/light theme toggle.
+
+The "Try it live" demo sends real requests directly from the browser to `POST http://127.0.0.1:8000/score` — it's calling the actual trained model, not a mock. Since the demo's simplified fields (amount, merchant category, card type, a device/IP risk signal, a billing/shipping mismatch toggle) don't map one-to-one onto the model's raw feature set, the page translates them into the API's real field names and values, and fills in the handful of anonymized identifier fields the model needs but that aren't meaningful to expose as inputs (documented in comments in the file). A threshold slider lets you see a transaction's flagged/cleared decision change live, without a new API call, since that's a pure comparison against the risk score already returned. If the API isn't running, the page shows a clear message telling you to start it, instead of failing silently.
+
+One thing worth knowing if you're editing this file directly: the API has CORS enabled (`allow_origins=["*"]`) specifically so this page can call it from a browser regardless of how the page itself is loaded.
+
 ## Project structure
 
 ```
@@ -39,7 +47,9 @@ False-Decline Watchdog/
 │   ├── cost_calculator.py                          # rupee cost-by-threshold analysis
 │   └── trained_model.pkl, scaler.pkl, frequency_encoder.pkl  # saved model artifacts
 ├── api/
-│   └── main.py                                     # FastAPI app exposing the /score endpoint
+│   └── main.py                                     # FastAPI app exposing the /score endpoint (CORS enabled)
+├── frontend/
+│   └── index.html                                  # pitch page + live demo, calls /score directly from the browser
 ├── tests/
 │   └── test_api.py                                 # automated tests for the API
 ├── requirements.txt
@@ -74,11 +84,24 @@ False-Decline Watchdog/
    ```
    Then visit `http://127.0.0.1:8000/docs` for the interactive Swagger UI, or `POST` to `/score` directly.
 
-6. **Run the tests**:
+6. **Run the frontend**, with the API still running from step 5. Just open `frontend/index.html` directly in your browser (double-click it, or drag it into a tab) and try the "Try it live" tab — it calls your running API for real.
+
+   If the page ever shows raw `{{ }}` text instead of real content (browser-dependent quirk, hasn't come up in normal testing), serve it over local HTTP instead as a fallback:
+   ```bash
+   cd frontend
+   python -m http.server 8765
+   ```
+   then open `http://127.0.0.1:8765/index.html`.
+
+7. **Run the tests**:
    ```bash
    python -m pytest tests/test_api.py -v
    ```
 
 ## Status / next steps
 
-This repository currently covers the backend and machine learning pipeline only — data preparation, model training, cost analysis, and a validated API. There is no frontend or UI yet; that will be designed and built separately once the backend is stable.
+The backend (data pipeline, model, cost analysis, validated API) and frontend (pitch page + live demo) are both built and working together end-to-end. What's genuinely still open:
+
+- **Deployment.** Everything currently runs locally — the API via `uvicorn --reload` (a dev server, not production-configured) and the frontend via a local static file server. Neither is hosted anywhere yet.
+- **CORS is wide open** (`allow_origins=["*"]`) in `api/main.py`, which is fine for local development but should be tightened to a specific origin before any real deployment.
+- The frontend's demo trades some fidelity for usability — a few real model features are auto-filled with representative values rather than exposed as form fields, since they're anonymized identifiers not meaningful for a person to enter by hand.
